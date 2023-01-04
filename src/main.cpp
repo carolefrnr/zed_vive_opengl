@@ -48,6 +48,8 @@
 #include <opencv2/opencv.hpp>
 // #include <opencv2/cvconfig.h>
 // #include <opencv2/core/types_c.h>
+#include <iostream>
+#include <eigen3/Eigen/Dense>
 
 #include <openvr/openvr.h>
 
@@ -57,10 +59,14 @@ using namespace std;
 // Zed Object
 Camera zed;
 InitParameters init_parameters;
+vr::TrackedDevicePose_t m_rTrackedDevicePose[vr::k_unMaxTrackedDeviceCount];
+glm::mat4 mvp; 
 
 //OpenGL 
 GLuint shaderF;
+GLuint shaderP;
 GLuint program;
+GLuint prjprogram;
 struct FramebufferDesc
 {
     GLuint RenderTexture;
@@ -69,6 +75,7 @@ struct FramebufferDesc
     Mat gpuImage; 
     GLuint shaderE;
     GLuint Framebuffer; 
+    GLuint texColorBuffer; 
 };
 FramebufferDesc leftEyeDesc;
 FramebufferDesc rightEyeDesc;
@@ -79,24 +86,28 @@ cudaGraphicsResource *Test;
 
 // VR System
 vr::IVRSystem *_pHMD;
+	GLuint m_unSceneProgramID;
 
 // Functions 
 void RenderStereoTargets(); 
 void RenderScene(vr::Hmd_Eye nEye); 
 bool CreateTexture(int nWidth, int nHeight, FramebufferDesc &framebufferDesc);
+bool CreateShader(); 
+GLuint CompileGLShader( const char *pchShaderName, const char *pchVertexShader, const char *pchFragmentShader ); 
 void ZedRetrieveImage();
+glm::mat4 MVP(vr::TrackedDevicePose_t m_rTrackedDevicePose[64]); 
 void ViveDisplay();
 void Close();
 void intHandler(int) {
     Close();
 }
 void ZEDProjectionMatrix(FramebufferDesc &framebufferDesc); 
-cv::Mat slMat2cvMat(Mat& input);
-sl::Mat cvMat2slMat(cv::Mat& input); 
+
 sl::Resolution res_; 
+GLint m_nSceneColor; 
 GLint m_nSceneMatrixLocation; 
 // Create VBO for framebuffer rendering
-GLuint texColorBuffer;
+// GLuint texColorBuffer;
 GLuint frameBuffer;
 GLuint VAO; 
 
@@ -109,6 +120,42 @@ string strFragmentShad = ("uniform sampler2D texImage;\n"
         " void main() {\n"
         " vec4 color = texture2D(texImage, gl_TexCoord[0].st);\n"
         " gl_FragColor = vec4(color.b, color.g, color.r, color.a);\n}");
+
+const GLchar *screenFullscreenQuadSource = 
+    "#version 440\n"
+      "layout(points) in;"
+      "layout(triangle_strip, max_vertices = 4) out;"
+      ""
+      "out vec2 texcoord;"
+      ""
+      "void main() "
+      "{"
+      "    gl_Position = vec4( 1.0, 1.0, 0., 1.0 );"
+      "    texcoord = vec2( 1.0, 0.0 );"
+      "    EmitVertex();"
+      ""
+      "    gl_Position = vec4(-1.0, 1.0, 0., 1.0 );"
+      "    texcoord = vec2( 0.0, 0.0 ); "
+      "    EmitVertex();"
+      ""
+      "    gl_Position = vec4( 1.0,-1.0, 0., 1.0 );"
+      "    texcoord = vec2( 1.0, 1.0 ); "
+      "    EmitVertex();"
+      ""
+      "    gl_Position = vec4(-1.0,-1.0, 0., 1.0 );"
+      "    texcoord = vec2( 0.0, 1.0 ); "
+      "    EmitVertex();"
+      "    EndPrimitive(); "
+      "}";
+
+
+// string strFragmentMVP = (
+//         "layout (location = 0) in vec3 position;\n"
+//         "void main() {\n" 
+//         "gl_Position = mvp * vec4(position, 1.0);\n}"
+
+//     ); 
+
 
 // Main loop for acquisition and rendering :
 // * grab from the ZED SDK
@@ -182,91 +229,7 @@ int main(int argc, char **argv)
     CreateTexture(res_.width, res_.height, leftEyeDesc);
     CreateTexture(res_.width, res_.height, rightEyeDesc);
 
-    glGenFramebuffers(1, &frameBuffer);
-    // At that point the framebuffer object is created, but is not complete yet
-    // and can't be used.
-    // For a framebuffer to be complete, there needs to be at least one buffer
-    // attached (color, depth, stencil...), and at least one color attachement.
-    // Besides, all attachement need to be complete (a texture attachement needs
-    // to have its memory reserved...), and all attachements must have the same
-    // number of multisamples.
-
-    // Bind the framebuffer to work with it.
-    glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
-
-    {  // You can test whether a framebuffer is complete as follows
-        GLuint fb_status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-        if (fb_status != GL_FRAMEBUFFER_COMPLETE)
-        {
-        std::cout << "Framebuffer " << frameBuffer
-                    << " is still incomplete and cannot yet be used." << std::endl;
-        }
-    }
-
-    glGenTextures(1, &texColorBuffer);
-    glBindTexture(GL_TEXTURE_2D, texColorBuffer);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, res_.width, res_.height, 0, GL_BGRA_EXT, GL_UNSIGNED_BYTE,
-               nullptr);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
-                            texColorBuffer, 0);
-    {  // You can test whether a framebuffer is complete as follows
-        GLuint fb_status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-        if (fb_status != GL_FRAMEBUFFER_COMPLETE)
-        {
-        std::cout << "Framebuffer " << frameBuffer
-                    << " is still incomplete and cannot yet be used." << std::endl;
-        }
-        else
-        {
-        std::cout << "Framebuffer is now complete with one color attachement"
-                    << std::endl;
-        }
-    }
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    // Create the GLSL program that will run the fragment shader (defined at the top)
-    // * Create the fragment shader from the string source
-    // * Compile the shader and check for errors
-    // * Create the GLSL program and attach the shader to it
-    // * Link the program and check for errors
-    // * Specify the uniform variable of the shader
-    GLuint shaderF  = glCreateShader(GL_FRAGMENT_SHADER); //fragment shader
-    const char* pszConstString = strFragmentShad.c_str();
-    glShaderSource(shaderF, 1, (const char**) &pszConstString, NULL);
-
-    // Compile the shader source code and check
-    glCompileShader(shaderF);
-    GLint compile_status = GL_FALSE;
-    glGetShaderiv(shaderF, GL_COMPILE_STATUS, &compile_status);
-    if (compile_status != GL_TRUE) return -2;
-
-    // Create the progam for both V and F Shader
-    program = glCreateProgram();
-    glAttachShader(program, shaderF);
-
-    // Link the program and check for errors
-    glLinkProgram(program);
-    GLint link_status = GL_FALSE;
-    glGetProgramiv(program, GL_LINK_STATUS, &link_status);
-    if (link_status != GL_TRUE) return -2;
-
-    // Set the uniform variable for texImage (sampler2D) to the texture unit (GL_TEXTURE0 by default --> id = 0)
-    glUniform1i(glGetUniformLocation(program, "texImage"), 0);
-    m_nSceneMatrixLocation = glGetUniformLocation(program, "texImage"); 
-
-    glUseProgram(program);
-
-    // layout id of the position attribute in the vertex shader.
-    const GLint colorAttrib = 0;
-
-    /**
-     * VERTEX ATTRIBUTE POINTERS
-     **/
-    // Enable the color attribute
-    glEnableVertexAttribArray(colorAttrib);
-    glVertexAttribPointer(colorAttrib, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float),
-                            (void *)(3 * sizeof(float)));
+    CreateShader(); 
 
     glutDisplayFunc(ZedRetrieveImage);
     glutCloseFunc(Close);
@@ -277,6 +240,11 @@ int main(int argc, char **argv)
 
 bool CreateTexture(int nWidth, int nHeight, FramebufferDesc &framebufferDesc)
 {
+
+    // Create VAO to store how the data is laid out
+    glGenVertexArrays(1, &VAO);
+    glBindVertexArray(VAO);
+
     // Create glTexture 
     cudaError_t err;
     glGenTextures(1, &framebufferDesc.RenderTexture);
@@ -286,6 +254,57 @@ bool CreateTexture(int nWidth, int nHeight, FramebufferDesc &framebufferDesc)
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, nWidth, nHeight, 0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, NULL);
     glBindTexture(GL_TEXTURE_2D, 0);
     err = cudaGraphicsGLRegisterImage(&framebufferDesc.pcuImageRes, framebufferDesc.RenderTexture, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsWriteDiscard);
+    // The depth buffer
+    GLuint depthrenderbuffer;
+    glGenRenderbuffers(1, &depthrenderbuffer);
+    glBindRenderbuffer(GL_RENDERBUFFER, depthrenderbuffer);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, nWidth, nHeight);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthrenderbuffer);
+
+    // Create glBuffer 
+    glGenFramebuffers(1, &framebufferDesc.Framebuffer);
+    // At that point the framebuffer object is created, but is not complete yet
+    // and can't be used.
+    // For a framebuffer to be complete, there needs to be at least one buffer
+    // attached (color, depth, stencil...), and at least one color attachement.
+    // Besides, all attachement need to be complete (a texture attachement needs
+    // to have its memory reserved...), and all attachements must have the same
+    // number of multisamples.
+
+    // Bind the framebuffer to work with it.
+    glBindFramebuffer(GL_FRAMEBUFFER, framebufferDesc.Framebuffer);
+
+    {  // You can test whether a framebuffer is complete as follows
+        GLuint fb_status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (fb_status != GL_FRAMEBUFFER_COMPLETE)
+        {
+        std::cout << "Framebuffer " << framebufferDesc.Framebuffer
+                    << " is still incomplete and cannot yet be used." << std::endl;
+        }
+    }
+
+    glGenTextures(1, &framebufferDesc.texColorBuffer);
+    glBindTexture(GL_TEXTURE_2D, framebufferDesc.texColorBuffer);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, res_.width, res_.height, 0, GL_BGRA_EXT, GL_UNSIGNED_BYTE,
+               nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                            framebufferDesc.texColorBuffer, 0);
+    {  // You can test whether a framebuffer is complete as follows
+        GLuint fb_status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (fb_status != GL_FRAMEBUFFER_COMPLETE)
+        {
+        std::cout << "Framebuffer " << framebufferDesc.Framebuffer
+                    << " is still incomplete and cannot yet be used." << std::endl;
+        }
+        else
+        {
+        std::cout << "Framebuffer is now complete with one color attachement"
+                    << std::endl;
+        }
+    }
+
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     // If any error are triggered, exit the program
@@ -297,9 +316,11 @@ bool CreateTexture(int nWidth, int nHeight, FramebufferDesc &framebufferDesc)
 
 void ZedRetrieveImage()
 {
-    vr::TrackedDevicePose_t m_rTrackedDevicePose[vr::k_unMaxTrackedDeviceCount];
     vr::HmdMatrix44_t mat = _pHMD->GetProjectionMatrix( vr::Eye_Left, m_fNearClip, m_fFarClip );
     vr::VRCompositor()->WaitGetPoses(m_rTrackedDevicePose, vr::k_unMaxTrackedDeviceCount, NULL, 0);
+    // mvp = MVP(m_rTrackedDevicePose); 
+    // mvp = glm::perspective(45.0f, 800.0f / 600.0f, 1.0f, 10.0f);
+    // mvp = glm::mat4(1.0f); 
     if (zed.grab() == ERROR_CODE::SUCCESS)
     {
         // Map GPU Resource for left image
@@ -332,13 +353,46 @@ void ZedRetrieveImage()
     cout << "RETRIEVE IMAGES OK" << endl;
 
     // Bind the default framebuffer (render on screen)
-    glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, leftEyeDesc.Framebuffer);
     // Clear the screen 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glClearColor(1, 0.5, 0, 1);
     glUseProgram(program); 
+    // glUniformMatrix4fv(m_nSceneMatrixLocation, 1, GL_FALSE, glm::value_ptr(mvp)); 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, leftEyeDesc.RenderTexture);
+    glBegin(GL_QUADS);
+    glTexCoord2f(0.0, 1.0);
+    glVertex2f(-1.0, -1.0);
+    glTexCoord2f(1.0, 1.0);
+    glVertex2f(1.0, -1.0);
+    glTexCoord2f(1.0, 0.0);
+    glVertex2f(1.0, 1.0);
+    glTexCoord2f(0.0, 0.0);
+    glVertex2f(-1.0, 1.0);
+    glEnd(); 
+
+    // Draws the currently bound VAO using the currently bound shader program.
+    // // This is drawn on the active framebuffer, which means that here we are
+    // // doing rendering to texture.
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glClearColor(1.0f, 0.4f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    // Bind the color texture of the framebuffer, where we have rendered the
+    // scene
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, leftEyeDesc.texColorBuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    //RIGHT
+    // Bind the default framebuffer (render on screen)
+    glBindFramebuffer(GL_FRAMEBUFFER, rightEyeDesc.Framebuffer);
+    // Clear the screen 
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glClearColor(1, 0.5, 0, 1);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, rightEyeDesc.RenderTexture);
     glBegin(GL_QUADS); 
     glTexCoord2f(0.0, 1.0);
     glVertex2f(-1.0, -1.0);
@@ -354,48 +408,22 @@ void ZedRetrieveImage()
     // // This is drawn on the active framebuffer, which means that here we are
     // // doing rendering to texture.
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClearColor(1.0f, 0.4f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glUseProgram(program);
-    // Bind the color texture of the framebuffer, where we have rendered the
-    // scene
+    // Bind the color texture of the framebuffer, where we have rendered the scene
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, texColorBuffer);
+    glBindTexture(GL_TEXTURE_2D, rightEyeDesc.texColorBuffer);
     // Dummy call to activate geometry shader: emit one point, and the geometry
     // shader will take care of emitting the required fullscreen quad.
-     glBegin(GL_QUADS); 
-    glTexCoord2f(0.0, 1.0);
-    glVertex2f(-1.0, -1.0);
-    glTexCoord2f(1.0, 1.0);
-    glVertex2f(1.0, -1.0);
-    glTexCoord2f(1.0, 0.0);
-    glVertex2f(1.0, 1.0);
-    glTexCoord2f(0.0, 0.0);
-    glVertex2f(-1.0, 1.0);
-    glEnd(); 
-
-
-// glBindTexture(GL_TEXTURE_2D, rightEyeDesc.RenderTexture); 
-//         glBegin(GL_QUADS);
-
-//     glTexCoord2f(0.0, 1.0);
-//     glVertex2f(0.0, -1.0);
-//     glTexCoord2f(1.0, 1.0);
-//     glVertex2f(1.0, -1.0);
-//     glTexCoord2f(1.0, 0.0);
-//     glVertex2f(1.0, 1.0);
-//     glTexCoord2f(0.0, 0.0);
-//     glVertex2f(0.0, 1.0);      
-//       glEnd();
-
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindTexture(GL_TEXTURE_2D, 0);
 
     if (_pHMD)
     {   
-        // Render the final texture*
-        // vr::IVRSystem::ComputeDistortion(); 
-        vr::Texture_t leftEyeTexture = {(void *)(uintptr_t) texColorBuffer, vr::TextureType_OpenGL, vr::ColorSpace_Gamma};
+        // Render the final texture
+        vr::Texture_t leftEyeTexture = {(void *)(uintptr_t) leftEyeDesc.texColorBuffer, vr::TextureType_OpenGL, vr::ColorSpace_Gamma};
         auto err = vr::VRCompositor()->Submit(vr::Eye_Left, &leftEyeTexture);
-        vr::Texture_t rightEyeTexture = {(void *)(uintptr_t)rightEyeDesc.RenderTexture, vr::TextureType_OpenGL, vr::ColorSpace_Gamma};
+        vr::Texture_t rightEyeTexture = {(void *)(uintptr_t)rightEyeDesc.texColorBuffer, vr::TextureType_OpenGL, vr::ColorSpace_Gamma};
         vr::VRCompositor()->Submit(vr::Eye_Right, &rightEyeTexture);
     
         // We want to make sure the glFinish waits for the entire present to complete, not just the submission
@@ -412,6 +440,50 @@ void ZedRetrieveImage()
     }
 }
 
+bool CreateShader()
+{
+    // Create the GLSL program that will run the fragment shader (defined at the top)
+    // * Create the fragment shader from the string source
+    // * Compile the shader and check for errors
+    // * Create the GLSL program and attach the shader to it
+    // * Link the program and check for errors
+    // * Specify the uniform variable of the shader
+    GLuint shaderF  = glCreateShader(GL_FRAGMENT_SHADER); //fragment shader
+    const char* pszConstString = strFragmentShad.c_str();
+    glShaderSource(shaderF, 1, (const char**) &pszConstString, NULL);
+
+    // Compile the shader source code and check
+    glCompileShader(shaderF);
+    GLint compile_status = GL_FALSE;
+    glGetShaderiv(shaderF, GL_COMPILE_STATUS, &compile_status);
+    if (compile_status != GL_TRUE) return -2;
+
+    // Compile another shader 
+    // GLuint geometryShaderQuad = glCreateShader(GL_GEOMETRY_SHADER);
+    // glShaderSource(geometryShaderQuad, 1, &screenFullscreenQuadSource, NULL);
+    // glCompileShader(geometryShaderQuad);
+
+    // Create the program 
+    program = glCreateProgram();
+    glAttachShader(program, shaderF);
+    // glAttachShader(program, geometryShaderQuad);
+
+    // Link the program and check for errors
+    glLinkProgram(program);
+    GLint link_status = GL_FALSE;
+    glGetProgramiv(program, GL_LINK_STATUS, &link_status);
+    if (link_status != GL_TRUE) return -2;
+
+    // Set the uniform variable for texImage (sampler2D) to the texture unit (GL_TEXTURE0 by default --> id = 0)
+    glUniform1i(glGetUniformLocation(program, "texImage"), 0);
+    m_nSceneColor = glGetUniformLocation(program, "texImage"); 
+
+
+    glUseProgram(program);
+
+    return true;
+
+}
 
 void Close()
 {    
@@ -430,136 +502,72 @@ void Close()
     rightEyeDesc.gpuImage.free();
 }
 
-void RenderStereoTargets()
-{
-	// glClearColor( 0.0f, 0.0f, 0.0f, 1.0f );
-	// glEnable( GL_MULTISAMPLE );
+glm::mat4 MVP(vr::TrackedDevicePose_t m_rTrackedDevicePose[64]){
+    //ZED MINI 
+    Eigen::MatrixXd prj_zed; 
+    auto param_ = zed.getCameraInformation().camera_configuration.calibration_parameters; 
+    //LEFT
+    // Focal length of the left eye in pixels
+    float focal_left_x = param_.left_cam.fx;
+    float focal_left_y = param_.left_cam.fy; 
+    // Focal length of the left eye in pixels
+    float principal_point_x = param_.left_cam.cx;
+    float principal_point_y = param_.left_cam.cy; 
+    // First radial distortion coefficient
+    float k1 = param_.left_cam.disto[0];
+    // Translation between left and right eye on z-axis
+    float tz = param_.T.z;
+    float tx = param_.T.x;
+    float ty = param_.T.y;
+    // Horizontal field of view of the left eye in degrees
+    float h_fov = param_.left_cam.h_fov;
 
-	// // Left Eye
- 	// // RenderScene( vr::Eye_Left );	
-    // // glGenFramebuffers(1, &leftEyeDesc.RenderTexture);
-    // // glBindFramebuffer(GL_DRAW_FRAMEBUFFER, leftEyeDesc.RenderTexture );
-    // glBindTexture(GL_TEXTURE_2D, leftEyeDesc.RenderTexture); 
- 	// glViewport(0, 0, m_nRenderWidth, m_nRenderHeight );
-    // glBlitFramebuffer( 0, 0, m_nRenderWidth, m_nRenderHeight, 0, 0, m_nRenderWidth, m_nRenderHeight, 
-	// 	GL_COLOR_BUFFER_BIT,
- 	// 	GL_LINEAR );
-    // glBindTexture(GL_TEXTURE_2D, 0);
-    // glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0 );	
-    // glDisable( GL_MULTISAMPLE );
+    sl::Pose pose; 
+    zed.getPosition(pose, sl::REFERENCE_FRAME::WORLD); 
+    sl::Rotation Rotation = pose.getRotationMatrix(); 
+    sl::Translation Translation = pose.getTranslation(); 
 
-	// glEnable( GL_MULTISAMPLE );
+    Eigen::Matrix3d R_t; 
+    R_t << (Rotation.r00, Rotation.r01, Rotation.r02, Translation.x),
+        (Rotation.r10, Rotation.r11, Rotation.r12, Translation.y),
+        (Rotation.r20, Rotation.r21, Rotation.r22, Translation.z);  
 
-	// // Right Eye
- 	// // RenderScene( vr::Eye_Right ); 	
-	
-    // // glGenFramebuffers(1, &rightEyeDesc.RenderTexture);
-    // // glBindFramebuffer(GL_DRAW_FRAMEBUFFER, rightEyeDesc.RenderTexture );
-    // glBindTexture(GL_TEXTURE_2D, rightEyeDesc.RenderTexture); 
- 	// glViewport(0, 0, m_nRenderWidth, m_nRenderHeight );
-    // glBlitFramebuffer( 0, 0, m_nRenderWidth, m_nRenderHeight, 0, 0, m_nRenderWidth, m_nRenderHeight, 
-	// 	GL_COLOR_BUFFER_BIT,
- 	// 	GL_LINEAR  );
-    // glBindTexture(GL_TEXTURE_2D, 0);
-    // glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0 );
-    // glDisable( GL_MULTISAMPLE );
+    Eigen::Matrix3d K; 
+    K << focal_left_x,k1,principal_point_x, 
+        0.0, focal_left_y, principal_point_y,
+        0.0, 0.0, 1  ; 
+ 
+    prj_zed =  K * R_t; 
+
+    // OPENVR
+    vr::HmdMatrix44_t prj = {_pHMD->GetProjectionMatrix(vr::Eye_Left, 0.01, 100)}; 
+    Eigen::Matrix4d prj_vr; 
+    prj_vr <<  prj.m[0][0], prj.m[0][1], prj.m[0][2], prj.m[0][3], 
+                prj.m[1][0], prj.m[1][1], prj.m[1][2], prj.m[1][3], 
+                prj.m[2][0], prj.m[2][1], prj.m[2][2], prj.m[2][3], 
+                prj.m[3][0], prj.m[3][1], prj.m[3][2], prj.m[3][3]; 
+
+    vr::HmdMatrix34_t matEye_view = _pHMD->GetEyeToHeadTransform( vr::Eye_Right );
+    Eigen::Matrix4d view_vr; 
+    view_vr <<  matEye_view.m[0][0], matEye_view.m[1][0], matEye_view.m[2][0], 0.0, 
+                matEye_view.m[0][1], matEye_view.m[1][1], matEye_view.m[2][1], 0.0,
+                matEye_view.m[0][2], matEye_view.m[1][2], matEye_view.m[2][2], 0.0,
+                matEye_view.m[0][3], matEye_view.m[1][3], matEye_view.m[2][3], 1.0f; 
+
+    vr::HmdMatrix34_t m_mat4HMDPose = m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].mDeviceToAbsoluteTracking;
+    Eigen::Matrix4d model_vr; 
+    model_vr <<  m_mat4HMDPose.m[0][0], m_mat4HMDPose.m[1][0], m_mat4HMDPose.m[2][0], 0.0,
+                m_mat4HMDPose.m[0][1], m_mat4HMDPose.m[1][1], m_mat4HMDPose.m[2][1], 0.0,
+                m_mat4HMDPose.m[0][2], m_mat4HMDPose.m[1][2], m_mat4HMDPose.m[2][2], 0.0,
+                m_mat4HMDPose.m[0][3], m_mat4HMDPose.m[1][3], m_mat4HMDPose.m[2][3], 1.0f;
+    model_vr.inverse(); 
+
+    auto MVP = prj_vr * prj_zed * view_vr * model_vr; 
+
+    glm::mat4 mvp_vr = {MVP(0,0),MVP(0,1),MVP(0,2),MVP(0,3),
+                        MVP(1,0),MVP(1,1),MVP(1,2),MVP(1,3),
+                        MVP(2,0),MVP(2,1),MVP(2,2),MVP(2,3), 
+                        MVP(3,0),MVP(3,1),MVP(3,2),MVP(3,3)};
+
+    return mvp_vr;                 
 }
-
-void RenderScene(vr::Hmd_Eye nEye){
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glUseProgram( program );
-    // glBindVertexArray( m_unSceneVAO );
-    glBindTexture( GL_TEXTURE_2D, program );
-    glBindVertexArray( 0 );
-
-}
-
-// Mapping between MAT_TYPE and CV_TYPE
-int getOCVtype(sl::MAT_TYPE type) {
-    int cv_type = -1;
-    switch (type) {
-        case MAT_TYPE::F32_C1: cv_type = CV_32FC1; break;
-        case MAT_TYPE::F32_C2: cv_type = CV_32FC2; break;
-        case MAT_TYPE::F32_C3: cv_type = CV_32FC3; break;
-        case MAT_TYPE::F32_C4: cv_type = CV_32FC4; break;
-        case MAT_TYPE::U8_C1: cv_type = CV_8UC1; break;
-        case MAT_TYPE::U8_C2: cv_type = CV_8UC2; break;
-        case MAT_TYPE::U8_C3: cv_type = CV_8UC3; break;
-        case MAT_TYPE::U8_C4: cv_type = CV_8UC4; break;
-        default: break;
-    }
-    return cv_type;
-}
-
-/**
-* Conversion function between sl::Mat and cv::Mat
-**/
-cv::Mat slMat2cvMat(sl::Mat& input) {
-    // Since cv::Mat data requires a uchar* pointer, we get the uchar1 pointer from sl::Mat (getPtr<T>())
-    // cv::Mat and sl::Mat will share a single memory structure
-    return cv::Mat(input.getHeight(), input.getWidth(), getOCVtype(input.getDataType()), input.getPtr<sl::uchar1>(MEM::CPU), input.getStepBytes(sl::MEM::CPU));
-}
-
-// Be careful about the memory owner, might want to use it like : 
-//     cvMat2slMat(cv_mat).copyTo(sl_mat, sl::COPY_TYPE::CPU_CPU);
-sl::Mat cvMat2slMat(cv::Mat& input) {
-    sl::MAT_TYPE sl_type;
-    switch (input.type()) {
-        case CV_32FC1: sl_type = sl::MAT_TYPE::F32_C1;
-            break;
-        case CV_32FC2: sl_type = sl::MAT_TYPE::F32_C2;
-            break;
-        case CV_32FC3: sl_type = sl::MAT_TYPE::F32_C3;
-            break;
-        case CV_32FC4: sl_type = sl::MAT_TYPE::F32_C4;
-            break;
-        case CV_8UC1: sl_type = sl::MAT_TYPE::U8_C1;
-            break;
-        case CV_8UC2: sl_type = sl::MAT_TYPE::U8_C2;
-            break;
-        case CV_8UC3: sl_type = sl::MAT_TYPE::U8_C3;
-            break;
-        case CV_8UC4: sl_type = sl::MAT_TYPE::U8_C4;
-            break;
-        default: break;
-    }
-    return sl::Mat(input.cols, input.rows, sl_type, input.data, input.step, sl::MEM::CPU);
-}
-// void ZEDProjectionMatrix(){
-    
-//     //*** OPENVR
-//     vr::HmdMatrix44_t prj[2] = { 
-// 		_pHMD->GetProjectionMatrix(vr::Eye_Left, 0.01, 100),
-// 		_pHMD->GetProjectionMatrix(vr::Eye_Right, 0.01, 100)}
-
-
-//     //*** OPENGL 
-//     glm::mat4 Model, View, Projection;
-//     GLuint shaderProgram = glCreateShader(GL_SHADER); //fragment shader
-//     GLint projection = glGetUniformLocation(shaderProgram, "Projection" );
-//     glUniformMatrix4fv(projection, 1, GL_FALSE, glm::value_ptr(Projection));
-
-
-//     glm::mat4 Proj; 
-//     auto param_ = zed.getCameraInformation().camera_configuration.calibration_parameters; 
-//     //LEFT
-//     // Focal length of the left eye in pixels
-//     float focal_left_x = param_.left_cam.fx;
-//     float focal_left_y = parma_.left_cam.fy
-//     // First radial distortion coefficient
-//     float k1 = param_.left_cam.disto[0];
-//     // Translation between left and right eye on z-axis
-//     float tz = param_.T.z;
-//     // Horizontal field of view of the left eye in degrees
-//     float h_fov = param_.left_cam.h_fov;
-
-//     //RIGHT
-//     // Focal length of the left eye in pixels
-//     float focal_right_x = param_.left_cam.fx;
-//     // First radial distortion coefficient
-//     float k1 = param_.left_cam.disto[0];
-//     // Translation between left and right eye on z-axis
-//     float tz = param_.T.z;
-//     // Horizontal field of view of the left eye in degrees
-//     float h_fov = param_.left_cam.h_fov;
-// }
