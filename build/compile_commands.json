@@ -1,0 +1,8 @@
+[
+{
+  "directory": "/home/carole/src/zed_display_opengl/build",
+  "command": "/usr/bin/c++ -I/usr/local/cuda/include -I/usr/local/zed/include -I/usr/include/SDL2 -I/home/carole/src/zed_display_opengl/include -isystem /usr/include/openvr -O3 -DNDEBUG -std=gnu++14 -o CMakeFiles/ZED_Vive_Display.dir/src/main.cpp.o -c /home/carole/src/zed_display_opengl/src/main.cpp",
+  "file": "/home/carole/src/zed_display_opengl/src/main.cpp",
+  "output": "CMakeFiles/ZED_Vive_Display.dir/src/main.cpp.o"
+}
+]
