@@ -13,30 +13,24 @@ endif()
 
 include(FindPkgConfig)
 pkg_check_modules(openvr REQUIRED IMPORTED_TARGET openvr)
-pkg_check_modules(OGRE REQUIRED IMPORTED_TARGET OGRE)
 find_package(ZED 3 REQUIRED)
 find_package(CUDA ${ZED_CUDA_VERSION} REQUIRED)
-find_package(OpenCV REQUIRED)
 set(OpenGL_GL_PREFERENCE LEGACY) 
 find_package(OpenGL REQUIRED)
 find_package(GLUT REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(SDL2 REQUIRED)
 
-include_directories(${CUDA_INCLUDE_DIRS})
-include_directories(${ZED_INCLUDE_DIRS})
-include_directories(${OPENCV_INCLUDE_DIRS})
-include_directories(${OGRE_INCLUDE_DIRS})
-include_directories(${SDL2_INCLUDE_DIRS})
-include_directories(${GLEW_INCLUDE_DIRS})
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+include_directories(${CUDA_INCLUDE_DIRS}
+                    ${ZED_INCLUDE_DIRS}
+                    ${SDL2_INCLUDE_DIRS}
+                    ${GLEW_INCLUDE_DIRS}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-link_directories(${ZED_LIBRARY_DIR})
-link_directories(${CUDA_LIBRARY_DIRS})
-link_directories(${OPENCV_LIBRARY_DIRS})
-link_directories(${SDL2_LIBRARY_DIRS})
-link_directories(${GLEW_LIBRARY_DIRS})
-link_directories(${OGRE_LIBRARY_DIRS})
+link_directories(${ZED_LIBRARY_DIR}
+                 ${CUDA_LIBRARY_DIRS}
+                 ${SDL2_LIBRARY_DIRS}
+                 ${GLEW_LIBRARY_DIRS})
 
 ADD_EXECUTABLE(${PROJECT_NAME} src/main.cpp )
 
@@ -46,5 +40,5 @@ else()
     SET(ZED_LIBS ${ZED_STATIC_LIBRARIES} ${CUDA_CUDA_LIBRARY} ${CUDA_LIBRARY})
 endif()
 
-TARGET_LINK_LIBRARIES(${PROJECT_NAME} ${ZED_LIBS} ${OpenCV_LIBRARIES} ${OPENGL_LIBRARIES} ${OGRE_LIBRARIES} ${GLUT_LIBRARY} ${GLEW_LIBRARIES} ${SDL2_LIBRARIES} PkgConfig::openvr)
+TARGET_LINK_LIBRARIES(${PROJECT_NAME} ${ZED_LIBS} ${OPENGL_LIBRARIES} ${GLUT_LIBRARY} ${GLEW_LIBRARIES} ${SDL2_LIBRARIES} PkgConfig::openvr)
 

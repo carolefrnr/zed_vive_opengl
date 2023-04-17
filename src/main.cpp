@@ -45,9 +45,6 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include <opencv2/opencv.hpp>
-// #include <opencv2/cvconfig.h>
-// #include <opencv2/core/types_c.h>
 #include <iostream>
 #include <eigen3/Eigen/Dense>
 
@@ -81,7 +78,6 @@ struct FramebufferDesc
 FramebufferDesc leftEyeDesc;
 FramebufferDesc rightEyeDesc;
 
-
 // VR System
 vr::IVRSystem *_pHMD;
 
@@ -95,16 +91,7 @@ void ZedRetrieveImage();
 glm::mat4 MVP(vr::TrackedDevicePose_t m_rTrackedDevicePose[64]); 
 void ViveDisplay();
 void Close();
-Eigen::Matrix4d GetHMDMatrixPoseEye( vr::Hmd_Eye nEye );
-Eigen::Matrix4d GetCurrentViewProjectionMatrix( vr::Hmd_Eye nEye ); 
-Eigen::Matrix4d GetHMDMatrixProjectionEye( vr::Hmd_Eye nEye ); 
-Eigen::Matrix4d m_mat4HMDPose;
-Eigen::Matrix4d m_mat4eyePosLeft;
-Eigen::Matrix4d m_mat4eyePosRight;
 
-Eigen::Matrix4d m_mat4ProjectionCenter;
-Eigen::Matrix4d m_mat4ProjectionLeft;
-Eigen::Matrix4d m_mat4ProjectionRight;
 void intHandler(int) {
     Close();
 }
@@ -215,8 +202,8 @@ int main(int argc, char **argv)
         cout << "COMPOSITOR OK" << endl;
     }
 
-    _pHMD->GetRecommendedRenderTargetSize(&m_nRenderWidth, &m_nRenderHeight);
-    vr::HmdMatrix44_t mat = _pHMD->GetProjectionMatrix( vr::Eye_Left, m_fNearClip, m_fFarClip );
+    _pHMD->GetRecommendedRenderTargetSize(&m_nRenderWidth, &m_nRenderHeight); //VR resolution 1440 x 1600
+    // vr::HmdMatrix44_t mat = _pHMD->GetProjectionMatrix( vr::Eye_Left, m_fNearClip, m_fFarClip );
     res_ = zed.getCameraInformation().camera_configuration.resolution;
 
     CreateShader(); 
@@ -224,12 +211,8 @@ int main(int argc, char **argv)
     CreateBuffer(rightEyeDesc); 
     CreateTexture(m_nRenderWidth, m_nRenderHeight, leftEyeDesc);
     CreateTexture(m_nRenderWidth, m_nRenderHeight, rightEyeDesc);
-    // std::cout << m_nRenderWidth << std::endl; 
-    // std::cout << m_nRenderHeight << std::endl; 
-
-    // CreateTexture(res_.width, res_.height, leftEyeDesc);
-    // CreateTexture(res_.width, res_.height, rightEyeDesc);
-
+    cout << "Width : " << m_nRenderWidth << endl; 
+    cout << "Height : " << m_nRenderHeight << endl; 
 
     glutDisplayFunc(ZedRetrieveImage);
     glutCloseFunc(Close);
@@ -341,8 +324,8 @@ void ZedRetrieveImage()
 
     //LEFT EYE 
     glm::mat4 model_left = glm::mat4(1.0f);
-    glm::mat4 scaling_left = glm::scale(model_left, glm::vec3(0.5625,0.5625,0.5625));  
-    mvp_left = glm::translate(scaling_left, glm::vec3(0.25f, -0.5f, 0.0f));	// move top-left --> works
+    glm::mat4 scaling_left = glm::scale(model_left, glm::vec3(0.603,0.603,0.603));  //glm::vec3(0.5625,0.5625,0.5625)
+    mvp_left = glm::translate(scaling_left, glm::vec3(0.426, -0.643, 0.0));	// move 
     // Bind the default framebuffer (render on screen)
     glBindFramebuffer(GL_FRAMEBUFFER, leftEyeDesc.Framebuffer);
     // Clear the screen 
@@ -365,8 +348,8 @@ void ZedRetrieveImage()
 
     //RIGHT EYE 
     glm::mat4 model = glm::mat4(1.0f);
-    glm::mat4 scaling = glm::scale(model, glm::vec3(0.45,0.45,0.45));  
-    mvp_right = glm::translate(scaling, glm::vec3(-0.25f, -0.5f, 0.0f));	// move top-left --> works
+    glm::mat4 scaling = glm::scale(model, glm::vec3(0.603,0.603,0.603));  
+    mvp_right = glm::translate(scaling, glm::vec3(-0.00048f, -0.643f, 0.0f));	// move ZED = glm::vec3(-0.15f, -0.5f, 0.0f) || ZED2 = glm::vec3(-0.36f, -0.5f, 0.0f)
     // Bind the default framebuffer (render on screen)
     glBindFramebuffer(GL_FRAMEBUFFER, rightEyeDesc.Framebuffer);
     // Clear the screen 
