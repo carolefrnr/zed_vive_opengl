@@ -153,10 +153,11 @@ int main(int argc, char **argv)
     init_parameters.depth_mode = DEPTH_MODE::NONE;
     init_parameters.coordinate_system = COORDINATE_SYSTEM::LEFT_HANDED_Y_UP;
     init_parameters.sdk_verbose=1;
+    init_parameters.camera_fps = 30; 
 
     // Open the camera
     glutInit(&argc, argv);
-    glutCreateWindow("GLEW Test");
+    glutCreateWindow("GLEW Display");
     GLenum err = glewInit();
     cout << "OPENGL OK" << endl;
     // Init GLEW Library
@@ -211,8 +212,10 @@ int main(int argc, char **argv)
     CreateBuffer(rightEyeDesc); 
     CreateTexture(m_nRenderWidth, m_nRenderHeight, leftEyeDesc);
     CreateTexture(m_nRenderWidth, m_nRenderHeight, rightEyeDesc);
-    cout << "Width : " << m_nRenderWidth << endl; 
-    cout << "Height : " << m_nRenderHeight << endl; 
+    cout << "Width HMD VIVE: " << m_nRenderWidth << endl; 
+    cout << "Height HMD VIVE: " << m_nRenderHeight << endl; 
+    cout << "Width ZED Mini: " << res_.width << endl; 
+    cout << "Height ZED Mini: " << res_.height << endl; 
 
     glutDisplayFunc(ZedRetrieveImage);
     glutCloseFunc(Close);
@@ -324,8 +327,12 @@ void ZedRetrieveImage()
 
     //LEFT EYE 
     glm::mat4 model_left = glm::mat4(1.0f);
-    glm::mat4 scaling_left = glm::scale(model_left, glm::vec3(0.603,0.603,0.603));  //glm::vec3(0.5625,0.5625,0.5625)
-    mvp_left = glm::translate(scaling_left, glm::vec3(0.426, -0.643, 0.0));	// move 
+    glm::mat4 scaling_left = glm::scale(model_left, glm::vec3(1.0,1.0,1.0));  
+    // glm::mat4 scaling_left = glm::scale(model_left, glm::vec3(0.603,0.603,0.603));  
+    // mvp_left = glm::translate(scaling_left, glm::vec3(0.426, -0.643, 0.0));	// move parametre Carole 
+    // mvp_left = glm::translate(scaling_left, glm::vec3(0.5, -0.75, 0.0));	// move parametres ZED mini
+    mvp_left = glm::translate(scaling_left, glm::vec3(0.6, -0.75, 0.0));	// move parametres ZED 2
+    // mvp_left = glm::translate(scaling_left, glm::vec3(0.428, -0.643, 0.0));	// move parametre Paul Audoyer 
     // Bind the default framebuffer (render on screen)
     glBindFramebuffer(GL_FRAMEBUFFER, leftEyeDesc.Framebuffer);
     // Clear the screen 
@@ -348,8 +355,12 @@ void ZedRetrieveImage()
 
     //RIGHT EYE 
     glm::mat4 model = glm::mat4(1.0f);
-    glm::mat4 scaling = glm::scale(model, glm::vec3(0.603,0.603,0.603));  
-    mvp_right = glm::translate(scaling, glm::vec3(-0.00048f, -0.643f, 0.0f));	// move ZED = glm::vec3(-0.15f, -0.5f, 0.0f) || ZED2 = glm::vec3(-0.36f, -0.5f, 0.0f)
+    glm::mat4 scaling = glm::scale(model, glm::vec3(1.0,1.0,1.0));  
+    // glm::mat4 scaling = glm::scale(model, glm::vec3(0.603,0.603,0.603));  
+    // mvp_right = glm::translate(scaling, glm::vec3(-0.00048, -0.643, 0.0f));	// move ZED = glm::vec3(-0.15f, -0.5f, 0.0f) || ZED2 = glm::vec3(-0.36f, -0.5f, 0.0f)
+    // mvp_right = glm::translate(scaling, glm::vec3(-0.000, -0.643, 0.0f));	// move ZED = glm::vec3(-0.15f, -0.5f, 0.0f) || ZED2 = glm::vec3(-0.36f, -0.5f, 0.0f)
+    // mvp_right = glm::translate(scaling, glm::vec3(0.5, -0.75, 0.0f));	// move ZED parametres ZED mini
+    mvp_right = glm::translate(scaling, glm::vec3(0.4, -0.75, 0.0f));	// move ZED parametres ZED 2
     // Bind the default framebuffer (render on screen)
     glBindFramebuffer(GL_FRAMEBUFFER, rightEyeDesc.Framebuffer);
     // Clear the screen 
