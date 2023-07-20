@@ -66,6 +66,13 @@ GLuint shaderVertex;
 GLuint program;
 GLuint programVertex;
 
+//Rectangles to be aware of collisions 
+GLuint redimageTex; 
+GLuint redShader; 
+std::vector<GLuint> transparencyPogram(4);
+GLuint transparencyShader;
+
+
 struct FramebufferDesc
 {
     GLuint RenderTexture;
@@ -91,6 +98,30 @@ void ZedRetrieveImage();
 glm::mat4 MVP(vr::TrackedDevicePose_t m_rTrackedDevicePose[64]); 
 void ViveDisplay();
 void Close();
+
+double alpha = 0; 
+std::vector<std::string> strFragmentShadTransp(4);
+
+void changeColor(char *alpha, int i)
+{
+    strFragmentShadTransp[i] = std::string("uniform sampler2D texImage;\n"
+        " void main() {\n"
+        " vec4 color = texture2D(texImage, gl_TexCoord[0].st);\n"
+        " color.a = ") + std::string(alpha) + std::string("; \n"
+        " gl_FragColor = vec4(1, 0, 0, color.a);\n}"); 
+
+    GLuint transparencyShader = glCreateShader(GL_FRAGMENT_SHADER); //fragment shader
+    const char* pszConstStringTransp = strFragmentShadTransp[i].c_str();
+    glShaderSource(transparencyShader, 1, (const char**) &pszConstStringTransp, NULL);
+
+    transparencyPogram[i] = glCreateProgram(); 
+    glAttachShader(transparencyPogram[i], transparencyShader);
+
+    glLinkProgram(transparencyPogram[i]);
+    GLint link_status_transp = GL_FALSE;
+    glGetProgramiv(transparencyPogram[i], GL_LINK_STATUS, &link_status_transp);
+}
+
 
 void intHandler(int) {
     Close();
@@ -138,6 +169,7 @@ std::string fragmentSource =
         " outColor = textureLod(imageTex, Texcoord, 0);"
         " outColor = vec4(outColor.b, outColor.g, outColor.r, outColor.a);"
       "}";
+
 
 
 // Main loop for acquisition and rendering :
@@ -191,7 +223,6 @@ int main(int argc, char **argv)
     {
         cout << "HMD OK" << endl;
     }
-
     vr::EVRInitError peError = vr::VRInitError_None;
     if (!vr::VRCompositor()) 
     // Shaders always begin with a version declaration, followed by a list of input and output variables, uniforms and its main function. Each shader's entry point is at its main function where we process any input variables and output the results in its output variables. Don't worry if you don't know what uniforms are, we'll get to those shortly. 
@@ -204,7 +235,6 @@ int main(int argc, char **argv)
     }
 
     _pHMD->GetRecommendedRenderTargetSize(&m_nRenderWidth, &m_nRenderHeight); //VR resolution 1440 x 1600
-    // vr::HmdMatrix44_t mat = _pHMD->GetProjectionMatrix( vr::Eye_Left, m_fNearClip, m_fFarClip );
     res_ = zed.getCameraInformation().camera_configuration.resolution;
 
     CreateShader(); 
@@ -212,6 +242,8 @@ int main(int argc, char **argv)
     CreateBuffer(rightEyeDesc); 
     CreateTexture(m_nRenderWidth, m_nRenderHeight, leftEyeDesc);
     CreateTexture(m_nRenderWidth, m_nRenderHeight, rightEyeDesc);
+
+    //Resolution parameters 
     cout << "Width HMD VIVE: " << m_nRenderWidth << endl; 
     cout << "Height HMD VIVE: " << m_nRenderHeight << endl; 
     cout << "Width ZED Mini: " << res_.width << endl; 
@@ -382,9 +414,11 @@ void ZedRetrieveImage()
     glBindVertexArray(0);
 
 
+    /*
+    Render the final texture
+    */ 
     if (_pHMD)
     {   
-        // Render the final texture
         vr::Texture_t leftEyeTexture = {(void *)(uintptr_t) leftEyeDesc.texColorBuffer, vr::TextureType_OpenGL, vr::ColorSpace_Gamma};
         auto err = vr::VRCompositor()->Submit(vr::Eye_Left, &leftEyeTexture);
         vr::Texture_t rightEyeTexture = {(void *)(uintptr_t)rightEyeDesc.texColorBuffer, vr::TextureType_OpenGL, vr::ColorSpace_Gamma};
@@ -396,9 +430,7 @@ void ZedRetrieveImage()
         glFlush();
         glFinish();  
         glutPostRedisplay();
-   
     }
- 
     else
     {
         std::cout << "HMD not detected";
